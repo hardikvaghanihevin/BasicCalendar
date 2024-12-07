@@ -1,0 +1,404 @@
+package com.hevin.basiccalendar
+
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.provider.CalendarContract
+import android.util.Log
+import androidx.fragment.app.Fragment
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Toast
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.hevin.basiccalendar.common.Constants.BASE_TAG
+import com.hevin.basiccalendar.databinding.FragmentCalendarBinding
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+
+private const val ARG_PARAM1 = "param1"
+private const val ARG_PARAM2 = "param2"
+
+/**
+ * A simple [Fragment] subclass.
+ * Use the [CalendarFragment.newInstance] factory method to
+ * create an instance of this fragment.
+ */
+
+class CalendarFragment : Fragment(R.layout.fragment_calendar) {
+    private final val TAG = BASE_TAG + CalendarFragment::class.java.simpleName
+
+
+    // ViewBinding setup
+    private var _binding: FragmentCalendarBinding? = null
+    private val binding get() = _binding!!
+
+    // Fragment arguments (if needed in future)
+    private var param1: String? = null
+    private var param2: String? = null
+
+    private var currentMonth: Int = Calendar.getInstance().get(Calendar.MONTH)
+    private var currentYear: Int = Calendar.getInstance().get(Calendar.YEAR)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        arguments?.let {
+            param1 = it.getString(ARG_PARAM1)
+            param2 = it.getString(ARG_PARAM2)
+        }
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        // Initialize ViewBinding
+        _binding = FragmentCalendarBinding.bind(view)
+
+        // Setup the calendar date change listener
+        setupCalendarView()
+
+        // Check calendar permissions and load events if granted
+        checkCalendarPermissions()
+    }
+
+    // Set up CalendarView's date change listener
+    private fun setupCalendarView() {
+        Log.d(TAG, "setupCalendarView: ")
+        binding.calendarView.setOnDateChangeListener { _, year, month, dayOfMonth ->
+//            val selectedDate = "$dayOfMonth/${month + 1}/$year"
+//            Toast.makeText(requireContext(), "Selected date: $selectedDate", Toast.LENGTH_SHORT).show()
+            currentYear = year
+            currentMonth = month
+            loadCalendarEvents(currentYear, currentMonth)
+        }
+    }
+
+    // Check for calendar read permissions and request if necessary
+    private fun checkCalendarPermissions() {
+        if (ContextCompat.checkSelfPermission(requireContext(), android.Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED) {
+//            loadCalendarEvents() // Load events if permission is granted
+            loadCalendarEvents(currentYear,currentMonth)
+        } else {
+            // Request permission if not granted
+            ActivityCompat.requestPermissions(requireActivity(), arrayOf(android.Manifest.permission.READ_CALENDAR), REQUEST_CODE_READ_CALENDAR)
+        }
+    }
+
+    // Load calendar events if permission is granted
+    @SuppressLint("Range", "SimpleDateFormat")
+    private fun loadCalendarEvents() {
+        val eventsUri = CalendarContract.Events.CONTENT_URI
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND
+        )
+
+        val cursor = requireContext().contentResolver.query(
+            eventsUri, projection, null, null,
+            CalendarContract.Events.DTSTART + " ASC"
+        )
+
+        cursor?.let {
+            if (it.moveToFirst()) {
+                do {
+                    val title = it.getString(it.getColumnIndex(CalendarContract.Events.TITLE))
+                    val start = it.getLong(it.getColumnIndex(CalendarContract.Events.DTSTART))
+                    val end = it.getLong(it.getColumnIndex(CalendarContract.Events.DTEND))
+
+                    val eventStart = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date(start))
+                    val eventEnd = SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date(end))
+//                    val eventInfo = "$title: $eventStart to $eventEnd"
+                    val eventInfo = "$eventStart to $eventEnd: $title"
+                    Toast.makeText(requireContext(), eventInfo, Toast.LENGTH_SHORT).show()
+                    Log.e(TAG, "loadCalendarEvents: $eventInfo", )
+                } while (it.moveToNext())
+            }
+            it.close()
+        }
+    }
+
+    // Method to load events for the specific month and year
+    @SuppressLint("Range")
+    private fun loadCalendarEvents(year: Int, month: Int) {
+        // Get the first and last day of the selected month
+        val calendar = Calendar.getInstance()
+        calendar.set(year, month, 1)
+
+        // First day of the month (start date)
+        val startOfMonth = calendar.timeInMillis
+
+        // Last day of the month (end date)
+        calendar.add(Calendar.MONTH, 1)
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.add(Calendar.DAY_OF_MONTH, -1)
+        val endOfMonth = calendar.timeInMillis
+
+        // Define the selection and arguments for querying the calendar events
+        val selection = "(${CalendarContract.Events.DTSTART} >= ? AND ${CalendarContract.Events.DTSTART} <= ?)"
+        val selectionArgs = arrayOf(startOfMonth.toString(), endOfMonth.toString())
+
+        // Query the calendar content provider
+        val eventsUri = CalendarContract.Events.CONTENT_URI
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.DESCRIPTION
+        )
+
+        val cursor = requireContext().contentResolver.query(
+            eventsUri, projection, selection, selectionArgs,
+            CalendarContract.Events.DTSTART + " ASC"
+        )
+
+        cursor?.let {
+            if (it.moveToFirst()) {
+                var eventInfo = "Events for ${SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(startOfMonth))}:\n"
+                do {
+                    val title = it.getString(it.getColumnIndex(CalendarContract.Events.TITLE))
+                    val start = it.getLong(it.getColumnIndex(CalendarContract.Events.DTSTART))
+                    val end = it.getLong(it.getColumnIndex(CalendarContract.Events.DTEND))
+                    val description = it.getString(it.getColumnIndex(CalendarContract.Events.DESCRIPTION)) ?: "No description"
+
+                    // Format event times
+                    val eventStart = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(start))
+                    val eventEnd = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(end))
+
+                    // Build event information string
+                    eventInfo += "$title\nStart: $eventStart\nEnd: $eventEnd\nDescription: $description\n\n"
+                } while (it.moveToNext())
+
+                // Show all events for the month
+                Toast.makeText(requireContext(), eventInfo, Toast.LENGTH_LONG).show()
+
+                // Log the event info for debugging (optional)
+                Log.e(TAG, "loadCalendarEvents: $eventInfo")
+            } else {
+                Toast.makeText(requireContext(), "No events for this month", Toast.LENGTH_SHORT).show()
+            }
+            it.close()
+        }
+    }
+
+    // Handle permission result (if user grants or denies permission)
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == REQUEST_CODE_READ_CALENDAR && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            // Permission granted, load events
+//            loadCalendarEvents()
+            loadCalendarEvents(currentYear, currentMonth)
+        } else {
+            // Permission denied, notify the user
+            Toast.makeText(requireContext(), "Permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Clean up the ViewBinding reference when the view is destroyed to avoid memory leaks
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null // Nullify binding reference
+    }
+
+    companion object {
+        // Request code for calendar permission
+        private const val REQUEST_CODE_READ_CALENDAR = 1
+
+        // Fragment argument keys
+        private const val ARG_PARAM1 = "param1"
+        private const val ARG_PARAM2 = "param2"
+
+        // Factory method to create a new instance of this fragment with parameters
+        @JvmStatic
+        fun newInstance(param1: String, param2: String) =
+            CalendarFragment().apply {
+                arguments = Bundle().apply {
+                    putString(ARG_PARAM1, param1)
+                    putString(ARG_PARAM2, param2)
+                }
+            }
+    }
+}
+
+
+ <CalendarView
+        android:id="@+id/calendarView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        android:dateTextAppearance="@android:style/TextAppearance.Medium"
+        android:weekDayTextAppearance="@android:style/TextAppearance.Small"
+        app:layout_constraintTop_toTopOf="parent" />
+
+        android:background="?android:attr/selectableItemBackground"
+
+
+ <?xml version="1.0" encoding="utf-8"?>
+ <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:app="http://schemas.android.com/apk/res-auto"
+     xmlns:tools="http://schemas.android.com/tools"
+     android:layout_width="match_parent"
+     android:layout_height="wrap_content"
+     android:paddingHorizontal="16dp"
+     tools:ignore="HardcodedText">
+
+     <!-- Left Arrow Button -->
+     <!-- android:background="?android:attr/selectableItemBackground"-->
+     <ImageButton
+         android:id="@+id/btnPrevMonth"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:layout_margin="16dp"
+         android:background="@drawable/month_navigator_shape"
+         android:contentDescription="Previous Month"
+         android:src="@drawable/ic_arrow_left"
+         app:layout_constraintStart_toStartOf="parent"
+         app:layout_constraintEnd_toStartOf="@id/tvMonthYear"
+         app:layout_constraintBottom_toBottomOf="parent"
+         app:layout_constraintVertical_bias="0"
+         app:layout_constraintTop_toTopOf="parent" />
+
+     <!-- Month & Year TextView -->
+     <TextView
+         android:id="@+id/tvMonthYear"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:layout_margin="16dp"
+         android:text="October 2024"
+         android:textSize="18sp"
+         android:textStyle="bold"
+         app:layout_constraintBottom_toBottomOf="parent"
+         app:layout_constraintVertical_bias="0"
+         app:layout_constraintEnd_toStartOf="@id/btnNextMonth"
+         app:layout_constraintStart_toEndOf="@id/btnPrevMonth"
+         app:layout_constraintTop_toTopOf="parent" />
+
+     <!-- Right Arrow Button -->
+     <ImageButton
+         android:id="@+id/btnNextMonth"
+         android:layout_width="wrap_content"
+         android:layout_height="wrap_content"
+         android:layout_margin="16dp"
+         android:background="@drawable/month_navigator_shape"
+         android:contentDescription="Next Month"
+         android:src="@drawable/ic_arrow_right"
+         app:layout_constraintStart_toEndOf="@id/tvMonthYear"
+         app:layout_constraintBottom_toBottomOf="parent"
+         app:layout_constraintVertical_bias="0"
+         app:layout_constraintEnd_toEndOf="parent"
+         app:layout_constraintTop_toTopOf="parent" />
+
+
+     <LinearLayout
+         android:id="@+id/ll_week"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:layout_marginTop="@dimen/_4sdp"
+         android:background="@drawable/day_background"
+         android:gravity="center"
+         android:orientation="horizontal"
+         android:paddingHorizontal="@dimen/_4sdp"
+         android:paddingVertical="@dimen/_4sdp"
+         android:weightSum="7"
+         app:layout_constraintBottom_toBottomOf="parent"
+         app:layout_constraintVertical_bias="0"
+         app:layout_constraintEnd_toEndOf="parent"
+         app:layout_constraintStart_toStartOf="parent"
+         app:layout_constraintTop_toBottomOf="@id/tvMonthYear">
+
+         <TextView
+             android:id="@+id/tvMon"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/mon"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+         <TextView
+             android:id="@+id/tvTue"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/tue"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+         <TextView
+             android:id="@+id/tvWed"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/wed"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+         <TextView
+             android:id="@+id/tvThu"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/thu"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+         <TextView
+             android:id="@+id/tvFri"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/fri"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+         <TextView
+             android:id="@+id/tvSat"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/sat"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+         <TextView
+             android:id="@+id/tvSun"
+             android:layout_width="0dp"
+             android:layout_height="wrap_content"
+             android:layout_weight="1"
+             android:text="@string/sun"
+             android:textAlignment="center"
+             android:textColor="@android:color/black" />
+
+     </LinearLayout>
+
+     <androidx.recyclerview.widget.RecyclerView
+         android:id="@+id/rv_calender"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:layout_marginTop="@dimen/_4sdp"
+         android:background="@drawable/month_navigator_shape"
+         android:padding="@dimen/_4sdp"
+         app:layout_constraintTop_toBottomOf="@id/ll_week" />
+
+     <LinearLayout
+         android:layout_width="match_parent"
+         android:layout_height="0dp"
+         app:layout_constraintHeight_percent="0.52"
+         app:layout_constraintTop_toBottomOf="@id/rv_calender">
+
+         <androidx.recyclerview.widget.RecyclerView
+             android:id="@+id/rv_event"
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_marginTop="@dimen/_4sdp"
+             android:background="@drawable/month_navigator_shape"
+             android:padding="@dimen/_4sdp"
+             app:layout_constraintTop_toBottomOf="@id/rv_calender" />
+     </LinearLayout>
+ </androidx.constraintlayout.widget.ConstraintLayout>
